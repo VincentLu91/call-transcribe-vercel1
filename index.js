@@ -163,16 +163,19 @@ app.post("/", async (req, res) => {
       console.error("AssemblyAI WebSocket error:", error);
     };
 
-    // Construct WebSocket URL based on request headers
-    const protocol = req.headers["x-forwarded-proto"] || "ws";
+    // Use the same protocol as the request
+    const protocol = req.headers["x-forwarded-proto"] || req.protocol;
     const wsProtocol = protocol === "https" ? "wss" : "ws";
-    const host = req.headers["x-forwarded-host"] || req.headers.host;
+    const host = req.headers.host;
+
+    // Construct WebSocket URL
+    const wsUrl = `${wsProtocol}://${host}`;
 
     res.set("Content-Type", "text/xml");
     res.send(
       `<Response>
          <Start>
-           <Stream url='${wsProtocol}://${host}' />
+           <Stream url='${wsUrl}' />
          </Start>
          <Say>
            Start speaking to see your audio transcribed in the console

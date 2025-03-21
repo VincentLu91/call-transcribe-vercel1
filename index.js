@@ -163,13 +163,20 @@ app.post("/", async (req, res) => {
       console.error("AssemblyAI WebSocket error:", error);
     };
 
-    // Use the same protocol as the request
-    const protocol = req.headers["x-forwarded-proto"] || req.protocol;
-    const wsProtocol = protocol === "https" ? "wss" : "ws";
-    const host = req.headers.host;
+    // In production, use VERCEL_URL, otherwise fallback to request headers
+    const isProduction = process.env.VERCEL_ENV === "production";
+    let wsUrl;
 
-    // Construct WebSocket URL
-    const wsUrl = `${wsProtocol}://${host}`;
+    if (isProduction && process.env.VERCEL_URL) {
+      // In production, always use wss:// with the VERCEL_URL
+      wsUrl = `wss://${process.env.VERCEL_URL}`;
+    } else {
+      // In development, determine protocol from request
+      const protocol = req.headers["x-forwarded-proto"] || req.protocol;
+      const wsProtocol = protocol === "https" ? "wss" : "ws";
+      const host = req.headers.host;
+      wsUrl = `${wsProtocol}://${host}`;
+    }
 
     res.set("Content-Type", "text/xml");
     res.send(

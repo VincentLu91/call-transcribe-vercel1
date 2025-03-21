@@ -20,7 +20,7 @@
         webSocket = new WebSocket(wsUrl);
 
         function ping() {
-          if ((webSocket.readyState = WebSocket.OPEN)) {
+          if (webSocket.readyState == WebSocket.OPEN) {
             webSocket.send(JSON.stringify({ type: "ping" }));
           } else {
             console.log("websocket is closed, stop ping.");

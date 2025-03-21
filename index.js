@@ -38,12 +38,12 @@ wss.on("connection", function connection(ws) {
   }
 
   ws.on("message", function incoming(message) {
-    console.log("message41", message);
     if (!assembly) {
       console.error("AssemblyAI's WebSocket must be initialized.");
       return;
     }
-
+    const messageStr = message.toString();
+    console.log("on message49", messageStr);
     try {
       const msg = JSON.parse(message);
       switch (msg.event) {
@@ -130,6 +130,10 @@ wss.on("connection", function connection(ws) {
           }
           break;
 
+        case "ping":
+          console.log(`Ping Received`);
+          ws.send(JSON.stringify({ event: "pong" }));
+          break;  
         case "stop":
           console.log(`Call Has Ended`);
           try {

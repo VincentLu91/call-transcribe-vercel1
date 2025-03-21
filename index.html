@@ -17,21 +17,42 @@
         const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
         const wsUrl = `${protocol}//${host}`;
 
-        webSocket = new WebSocket(wsUrl);
+        let ws = new WebSocket(wsUrl);
 
         function ping() {
-          if (webSocket.readyState == WebSocket.OPEN) {
-            webSocket.send(JSON.stringify({ type: "ping" }));
+          if (ws.readyState == WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: "ping" }));
           } else {
             console.log("websocket is closed, stop ping.");
           }
         }
 
-        ping();
-        const pingInterval = setInterval(ping, 10 * 1000);
+        ws.onopen = () => {
+          console.log("WebSocket connected");
+          keepAlive();
+        };
 
-        webSocket.onmessage = function (msg) {
-          console.log("on new message...");
+        ws.onclose = () => {
+          console.log("WebSocket closed. Reconnecting...");
+          reconnect();
+        };
+
+        function keepAlive() {
+          if (ws.readyState === WebSocket.OPEN) {
+            console.log("Sending ping to server");
+            ws.send(JSON.stringify({ event: "ping" }));
+          }
+          setTimeout(keepAlive, 20 * 1000); // Send every 50 seconds
+        }
+        
+        function reconnect() {
+          setTimeout(() => {
+            ws = new WebSocket(wsUrl);
+          }, 5000);
+        }
+
+        ws.onmessage = function (msg) {
+          console.log("on new message...", msg.data);
           const data = JSON.parse(msg.data);
           if (data.event === "interim-transcription") {
             document.getElementById("transcription-container").innerHTM = "";

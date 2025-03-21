@@ -3,10 +3,12 @@ const express = require("express");
 const WaveFile = require("wavefile").WaveFile;
 const path = require("path");
 
+console.log("process.env.VERCEL_ENV", process.env.VERCEL_ENV);
 // Environment variables
 const ASSEMBLY_AI_KEY =
   process.env.ASSEMBLY_AI_KEY || "8acedd22ef7542259df0f36dc8bf18ac";
 const PORT = process.env.PORT || 8080;
+console.log("PORT", PORT);
 
 const app = express();
 const server = require("http").createServer(app);
@@ -47,7 +49,7 @@ wss.on("connection", function connection(ws) {
         case "connected":
           console.log(`A new call has connected.`);
           assembly.onerror = (error) => {
-            console.error("AssemblyAI WebSocket error:", error);
+            console.error("AssemblyAI WebSocket error1:", error);
           };
 
           const texts = {};
@@ -160,7 +162,7 @@ app.post("/", async (req, res) => {
 
     // Handle connection errors
     assembly.onerror = (error) => {
-      console.error("AssemblyAI WebSocket error:", error);
+      console.error("AssemblyAI WebSocket error2:", error);
     };
 
     // In production, use VERCEL_URL, otherwise fallback to request headers
@@ -177,6 +179,7 @@ app.post("/", async (req, res) => {
       const host = req.headers.host;
       wsUrl = `${wsProtocol}://${host}`;
     }
+    console.log("wsUrl", wsUrl);
 
     res.set("Content-Type", "text/xml");
     res.send(

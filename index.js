@@ -55,7 +55,7 @@ wss.on("connection", function connection(ws) {
 
           const texts = {};
           assembly.onmessage = (assemblyMsg) => {
-            console.log("assemblyMsg", assemblyMsg);
+            console.log("New message from twilio====");
             try {
               const res = JSON.parse(assemblyMsg.data);
               texts[res.audio_start] = res.text;

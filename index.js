@@ -67,13 +67,15 @@ wss.on("connection", function connection(ws) {
                   msg += ` ${texts[key]}`;
                 }
               }
-              console.log(msg);
+              console.log("New message70:", msg);
               latestTranscription = msg; // Store the latest transcription
 
               // Broadcast to all connected clients
               wss.clients.forEach((client) => {
+                console.log("client.readyState", client.readyState);
                 if (client.readyState === WebSocket.OPEN) {
                   try {
+                    console.log("sent message to frontend==");
                     client.send(
                       JSON.stringify({
                         event: "interim-transcription",

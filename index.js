@@ -38,6 +38,7 @@ wss.on("connection", function connection(ws) {
   }
 
   ws.on("message", function incoming(message) {
+    console.log("message41", message);
     if (!assembly) {
       console.error("AssemblyAI's WebSocket must be initialized.");
       return;
@@ -54,6 +55,7 @@ wss.on("connection", function connection(ws) {
 
           const texts = {};
           assembly.onmessage = (assemblyMsg) => {
+            console.log("assemblyMsg", assemblyMsg);
             try {
               const res = JSON.parse(assemblyMsg.data);
               texts[res.audio_start] = res.text;

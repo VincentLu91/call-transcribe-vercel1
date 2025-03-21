@@ -5,7 +5,21 @@
         "use": "@vercel/node"
     }],
     "routes": [{
-        "src": "/(.*)",
-        "dest": "index.js"
-    }]
+            "src": "/",
+            "dest": "index.js"
+        },
+        {
+            "src": "/api/(.*)",
+            "dest": "index.js"
+        },
+        {
+            "src": "/(.*)",
+            "dest": "index.js",
+            "headers": {
+                "Upgrade": "$http_upgrade",
+                "Connection": "upgrade"
+            },
+            "continue": true
+        }
+    ]
 }

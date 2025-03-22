@@ -9,8 +9,46 @@
       Call your Twilio Number, start talking and watch your words magically
       appear.
     </h3>
+    <div style="margin: 20px 0">
+      <input
+        type="tel"
+        id="phone-number"
+        placeholder="Enter phone number (e.g., 16471234567)"
+        style="padding: 8px; margin-right: 10px"
+      />
+      <button onclick="makeCall()" style="padding: 8px 16px">Make Call</button>
+    </div>
     <p id="transcription-container"></p>
     <script>
+      function makeCall() {
+        try {
+          const phoneNumber = document.getElementById("phone-number").value;
+          if (!phoneNumber) {
+            alert("Please enter a phone number");
+            return;
+          }
+          console.log("init another call..");
+
+          fetch("/make-outbounding-call", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ phoneNumber }),
+          })
+            .then((response) => {
+              if (!response.ok) {
+                throw new Error("Failed to initiate call");
+              }
+            })
+            .catch((error) => {
+              alert("Error: " + error.message);
+            });
+        } catch (error) {
+          console.log("error47", error);
+        }
+      }
+
       document.addEventListener("DOMContentLoaded", (event) => {
         // In production on Vercel, use the VERCEL_URL environment variable
         const host = window.location.host;
@@ -44,7 +82,7 @@
           }
           setTimeout(keepAlive, 20 * 1000); // Send every 50 seconds
         }
-        
+
         function reconnect() {
           setTimeout(() => {
             ws = new WebSocket(wsUrl);
@@ -55,7 +93,6 @@
           console.log("on new message...", msg.data);
           const data = JSON.parse(msg.data);
           if (data.event === "interim-transcription") {
-            document.getElementById("transcription-container").innerHTM = "";
             document.getElementById("transcription-container").innerHTML =
               data.text;
           }

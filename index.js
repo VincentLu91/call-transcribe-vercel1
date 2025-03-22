@@ -1,13 +1,22 @@
+require("dotenv").config();
+
 const WebSocket = require("ws");
 const express = require("express");
 const WaveFile = require("wavefile").WaveFile;
 const path = require("path");
+const twilio = require("twilio");
+
+const ASSEMBLY_AI_KEY = process.env.ASSEMBLY_AI_KEY;
+console.log("ASSEMBLY_AI_KEY", ASSEMBLY_AI_KEY);
+const PORT = process.env.PORT || 8080;
+
+const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
+const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
+const TWILIO_NUMBER = process.env.TWILIO_NUMBER;
+
+const client = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
 
 console.log("process.env.VERCEL_ENV", process.env.VERCEL_ENV);
-// Environment variables
-const ASSEMBLY_AI_KEY =
-  process.env.ASSEMBLY_AI_KEY || "8acedd22ef7542259df0f36dc8bf18ac";
-const PORT = process.env.PORT || 8080;
 console.log("PORT", PORT);
 
 const app = express();
@@ -38,12 +47,12 @@ wss.on("connection", function connection(ws) {
   }
 
   ws.on("message", function incoming(message) {
+    const messageStr = message.toString();
+    console.log("on message49");
     if (!assembly) {
       console.error("AssemblyAI's WebSocket must be initialized.");
       return;
     }
-    const messageStr = message.toString();
-    console.log("on message49", messageStr);
     try {
       const msg = JSON.parse(message);
       switch (msg.event) {
@@ -67,12 +76,11 @@ wss.on("connection", function connection(ws) {
                   msg += ` ${texts[key]}`;
                 }
               }
-              console.log("New message70:", msg);
+              // console.log("New message70:", msg);
               latestTranscription = msg; // Store the latest transcription
 
               // Broadcast to all connected clients
               wss.clients.forEach((client) => {
-                console.log("client.readyState", client.readyState);
                 if (client.readyState === WebSocket.OPEN) {
                   try {
                     console.log("sent message to frontend==");
@@ -133,11 +141,12 @@ wss.on("connection", function connection(ws) {
         case "ping":
           console.log(`Ping Received`);
           ws.send(JSON.stringify({ event: "pong" }));
-          break;  
+          break;
         case "stop":
           console.log(`Call Has Ended`);
           try {
             assembly.send(JSON.stringify({ terminate_session: true }));
+            assembly.close();
           } catch (error) {
             console.error("Error terminating AssemblyAI session:", error);
           }
@@ -149,14 +158,109 @@ wss.on("connection", function connection(ws) {
   });
 });
 
+// Add body parser middleware for JSON
+app.use(express.json());
+
 //Handle HTTP Request
 app.get("/", (req, res) => res.sendFile(path.join(__dirname, "/index.html")));
+
+// Make a call to a specified number
+app.post("/make-call1", (req, res) => {
+  const phoneNumber = req.body.phoneNumber;
+  if (!phoneNumber) {
+    return res.status(400).json({ error: "Phone number is required" });
+  }
+
+  // Ensure phone number is in E.164 format
+  const formattedNumber = phoneNumber.startsWith("+")
+    ? phoneNumber
+    : `+${phoneNumber}`;
+
+  res.set("Content-Type", "text/xml");
+  res.send(
+    `<Response>
+       <Dial>${formattedNumber}</Dial>
+     </Response>`
+  );
+});
 
 // API endpoint to get the latest transcription
 app.get("/api/transcription", (req, res) => {
   res.json({ transcription: latestTranscription });
 });
 
+app.post("/make-outbounding-call", async (req, res) => {
+  const phoneNumber = req.body.phoneNumber;
+  if (!phoneNumber) {
+    return res.status(400).json({ error: "Phone number is required" });
+  }
+
+  // Always reinitialize the WebSocket for a new call
+  if (assembly) {
+    try {
+      assembly.close();
+    } catch (error) {
+      console.log("Error closing existing WebSocket:", error);
+    }
+  }
+  initAssemblyWebSocket();
+
+  try {
+    const isProduction = process.env.VERCEL_ENV === "production";
+    // let wsUrl;
+    // // Ensure phone number is in E.164 format
+    const formattedNumber = phoneNumber.startsWith("+")
+      ? phoneNumber
+      : `+${phoneNumber}`;
+    // if (isProduction && process.env.VERCEL_URL) {
+    //   wsUrl = `wss://${process.env.VERCEL_URL}`;
+    // } else {
+    //   // In development, determine protocol from request
+    //   const protocol = req.headers["x-forwarded-proto"] || req.protocol;
+    //   const wsProtocol = protocol === "https" ? "wss" : "ws";
+    //   wsUrl = `${wsProtocol}://${process.env.VERCEL_URL}`;
+    // }
+    // wsUrl = `${wsProtocol}://${process.env.VERCEL_URL}`;
+    const wsUrl = `wss://${process.env.VERCEL_URL}`;
+
+    const call = await client.calls.create({
+      to: formattedNumber,
+      from: TWILIO_NUMBER,
+      twiml: `<Response>
+         <Start>
+           <Stream url='${wsUrl}' />
+         </Start>
+         <Say>
+           Start speaking to see your audio transcribed in the console
+         </Say>
+         <Pause length='300' />
+       </Response>`,
+      // statusCallback: `https://${process.env.VERCEL_URL}/outboundWebhook`,
+      // statusCallbackEvent: [`initiated`, `ringing`, `answered`, `completed`],
+    });
+    console.log("call SID:", call.sid);
+    res.json({
+      status: "ok",
+      callSID: call.sid,
+    });
+  } catch (error) {
+    console.log("making a call Err:", error);
+    res.json({
+      status: "failed",
+    });
+  }
+});
+
+app.post("/outboundWebhook", async (req, res) => {
+  const body = req.body;
+  console.log("body", body);
+  res.json({
+    status: "out bound call works",
+    body: body,
+  });
+});
+
+// Handle outbound calls
 app.post("/", async (req, res) => {
   try {
     // Initialize AssemblyAI WebSocket with timeout and error handling
@@ -176,7 +280,6 @@ app.post("/", async (req, res) => {
     // In production, use VERCEL_URL, otherwise fallback to request headers
     const isProduction = process.env.VERCEL_ENV === "production";
     let wsUrl;
-
     if (isProduction && process.env.VERCEL_URL) {
       // In production, always use wss:// with the VERCEL_URL
       wsUrl = `wss://${process.env.VERCEL_URL}`;
@@ -185,7 +288,8 @@ app.post("/", async (req, res) => {
       const protocol = req.headers["x-forwarded-proto"] || req.protocol;
       const wsProtocol = protocol === "https" ? "wss" : "ws";
       const host = req.headers.host;
-      wsUrl = `${wsProtocol}://${host}`;
+      // wsUrl = `${wsProtocol}://${host}`;
+      wsUrl = `${wsProtocol}://${process.env.VERCEL_URL}`;
     }
     console.log("wsUrl", wsUrl);
 
@@ -207,7 +311,45 @@ app.post("/", async (req, res) => {
   }
 });
 
+const initAssemblyWebSocket = () => {
+  try {
+    assembly = new WebSocket(
+      "wss://api.assemblyai.com/v2/realtime/ws?sample_rate=8000",
+      {
+        headers: { authorization: ASSEMBLY_AI_KEY },
+        handshakeTimeout: 10000, // 10 second timeout
+      }
+    );
+
+    // Handle connection errors
+    assembly.onerror = (error) => {
+      console.error("AssemblyAI WebSocket error2:", error);
+    };
+
+    assembly.onopen = () => {
+      console.log("assembly websocket initiated!");
+    };
+
+    assembly.onclose = () => {
+      console.log("AssemblyAI WebSocket closed");
+    };
+
+    // Add connection state check
+    if (assembly.readyState === WebSocket.CONNECTING) {
+      return new Promise((resolve) => {
+        assembly.onopen = () => {
+          console.log("assembly websocket initiated!");
+          resolve();
+        };
+      });
+    }
+  } catch (error) {
+    console.log("initAssemblyWebSocket Err:", error);
+    throw error;
+  }
+};
 // Start server
+initAssemblyWebSocket();
 console.log(`Listening at Port ${PORT}`);
 server.listen(PORT);
 

@@ -29,6 +29,7 @@ const wss = new WebSocket.Server({
 let assembly;
 let chunks = [];
 let latestTranscription = ""; // Store the latest transcription
+let currentRecording = null; // Store the current recording information
 
 // Handle Web Socket Connection
 wss.on("connection", function connection(ws) {
@@ -158,8 +159,9 @@ wss.on("connection", function connection(ws) {
   });
 });
 
-// Add body parser middleware for JSON
+// Add body parser middleware for JSON and URL-encoded data
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 //Handle HTTP Request
 app.get("/", (req, res) => res.sendFile(path.join(__dirname, "/index.html")));
@@ -195,6 +197,9 @@ app.post("/make-outbounding-call", async (req, res) => {
     return res.status(400).json({ error: "Phone number is required" });
   }
 
+  // Reset recording state for new call
+  currentRecording = null;
+
   // Always reinitialize the WebSocket for a new call
   if (assembly) {
     try {
@@ -207,21 +212,15 @@ app.post("/make-outbounding-call", async (req, res) => {
 
   try {
     const isProduction = process.env.VERCEL_ENV === "production";
-    // let wsUrl;
-    // // Ensure phone number is in E.164 format
     const formattedNumber = phoneNumber.startsWith("+")
       ? phoneNumber
       : `+${phoneNumber}`;
-    // if (isProduction && process.env.VERCEL_URL) {
-    //   wsUrl = `wss://${process.env.VERCEL_URL}`;
-    // } else {
-    //   // In development, determine protocol from request
-    //   const protocol = req.headers["x-forwarded-proto"] || req.protocol;
-    //   const wsProtocol = protocol === "https" ? "wss" : "ws";
-    //   wsUrl = `${wsProtocol}://${process.env.VERCEL_URL}`;
-    // }
-    // wsUrl = `${wsProtocol}://${process.env.VERCEL_URL}`;
     const wsUrl = `wss://${process.env.VERCEL_URL}`;
+
+    const recordingStatusCallback =
+      process.env.VERCEL_ENV === "production"
+        ? "https://call-transcribe-heroku-b15b1132d70f.herokuapp.com/recording-status" // prod
+        : "https://98f4-70-50-62-156.ngrok-free.app/recording-status"; // local ngrok temporary
 
     const call = await client.calls.create({
       to: formattedNumber,
@@ -235,13 +234,24 @@ app.post("/make-outbounding-call", async (req, res) => {
          </Say>
          <Pause length='300' />
        </Response>`,
-      // statusCallback: `https://${process.env.VERCEL_URL}/outboundWebhook`,
-      // statusCallbackEvent: [`initiated`, `ringing`, `answered`, `completed`],
+      record: true,
+      recordingStatusCallback: recordingStatusCallback,
+      recordingStatusCallbackEvent: ["completed"],
     });
     console.log("call SID:", call.sid);
+
+    // Wait for recording to complete (up to 5 minutes)
+    let attempts = 0;
+    const maxAttempts = 60; // 5 minutes with 5-second intervals
+    while (!currentRecording && attempts < maxAttempts) {
+      await new Promise((resolve) => setTimeout(resolve, 5000)); // Wait 5 seconds
+      attempts++;
+    }
+
     res.json({
       status: "ok",
       callSID: call.sid,
+      recording: currentRecording,
     });
   } catch (error) {
     console.log("making a call Err:", error);
@@ -258,6 +268,29 @@ app.post("/outboundWebhook", async (req, res) => {
     status: "out bound call works",
     body: body,
   });
+});
+
+// Handle recording status callbacks from Twilio
+app.post("/recording-status", async (req, res) => {
+  const recordingStatus = req.body;
+  console.log("Recording Status:", recordingStatus);
+
+  if (recordingStatus.RecordingStatus === "completed") {
+    // Store recording information when it's complete
+    currentRecording = {
+      recordingSid: recordingStatus.RecordingSid,
+      recordingUrl: recordingStatus.RecordingUrl,
+      recordingDuration: recordingStatus.RecordingDuration,
+      recordingChannels: recordingStatus.RecordingChannels,
+      recordingStatus: recordingStatus.RecordingStatus,
+    };
+
+    // Print the recording object when call ends
+    console.log("Call Recording Completed:");
+    console.log(JSON.stringify(currentRecording, null, 2));
+  }
+
+  res.status(200).send();
 });
 
 // Handle outbound calls

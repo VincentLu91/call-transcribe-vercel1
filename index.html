@@ -99,16 +99,10 @@
               data.text;
           }
           if (data.event === "recording_completed") {
-            // currentRecording = {
-            //   recordingSid: recordingStatus.RecordingSid,
-            //   recordingUrl: recordingStatus.RecordingUrl,
-            //   recordingDuration: recordingStatus.RecordingDuration,
-            //   recordingChannels: recordingStatus.RecordingChannels,
-            //   recordingStatus: recordingStatus.RecordingStatus,
-            // };
             const result = data.result;
-            document.getElementById("recording-url").innerHTML =
-              result?.recordingUrl;
+            document.getElementById(
+              "recording-url"
+            ).innerHTML = `<a href="${result?.recordingUrl}">open url</a>`;
           }
         };
       });

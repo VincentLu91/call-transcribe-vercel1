@@ -285,6 +285,7 @@ app.post("/recording-status", async (req, res) => {
     recordingDuration: recordingStatus.RecordingDuration,
     recordingChannels: recordingStatus.RecordingChannels,
     recordingStatus: recordingStatus.RecordingStatus,
+    recordingStartTime: recordingStatus.RecordingStartTime,
   };
 
   // Print the recording object when call ends

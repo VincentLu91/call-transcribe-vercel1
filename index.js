@@ -247,10 +247,12 @@ app.post("/make-outbounding-call", async (req, res) => {
     //   await new Promise((resolve) => setTimeout(resolve, 5000)); // Wait 5 seconds
     //   attempts++;
     // }
+    // https responsive time should be less than 1s, ideally 100ms
 
     res.json({
       status: "ok",
       callSID: call.sid,
+      message: "call initialized successfully",
       // recording: currentRecording,
     });
   } catch (error) {
@@ -288,9 +290,24 @@ app.post("/recording-status", async (req, res) => {
     // Print the recording object when call ends
     console.log("Call Recording Completed:");
     console.log(JSON.stringify(currentRecording, null, 2));
-  }
 
-  res.status(200).send();
+    ws.send(
+      JSON.stringify({
+        event: "recording_completed",
+        result: currentRecording,
+      })
+    );
+
+    res.status(200).send({
+      status: "ok",
+      message: "recording in completed",
+    });
+  } else {
+    res.status(200).send({
+      status: "ok",
+      message: "recording in progress",
+    });
+  }
 });
 
 // Handle outbound calls

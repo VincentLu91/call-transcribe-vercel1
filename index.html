@@ -19,6 +19,7 @@
       <button onclick="makeCall()" style="padding: 8px 16px">Make Call</button>
     </div>
     <p id="transcription-container"></p>
+    <p id="recording-url"></p>
     <script>
       function makeCall() {
         try {
@@ -96,6 +97,18 @@
           if (data.event === "interim-transcription") {
             document.getElementById("transcription-container").innerHTML =
               data.text;
+          }
+          if (data.event === "recording_completed") {
+            // currentRecording = {
+            //   recordingSid: recordingStatus.RecordingSid,
+            //   recordingUrl: recordingStatus.RecordingUrl,
+            //   recordingDuration: recordingStatus.RecordingDuration,
+            //   recordingChannels: recordingStatus.RecordingChannels,
+            //   recordingStatus: recordingStatus.RecordingStatus,
+            // };
+            const result = data.result;
+            document.getElementById("recording-url").innerHTML =
+              result?.recordingUrl;
           }
         };
       });

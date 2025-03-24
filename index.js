@@ -243,15 +243,15 @@ app.post("/make-outbounding-call", async (req, res) => {
     // Wait for recording to complete (up to 5 minutes)
     let attempts = 0;
     const maxAttempts = 60; // 5 minutes with 5-second intervals
-    while (!currentRecording && attempts < maxAttempts) {
-      await new Promise((resolve) => setTimeout(resolve, 5000)); // Wait 5 seconds
-      attempts++;
-    }
+    // while (!currentRecording && attempts < maxAttempts) {
+    //   await new Promise((resolve) => setTimeout(resolve, 5000)); // Wait 5 seconds
+    //   attempts++;
+    // }
 
     res.json({
       status: "ok",
       callSID: call.sid,
-      recording: currentRecording,
+      // recording: currentRecording,
     });
   } catch (error) {
     console.log("making a call Err:", error);

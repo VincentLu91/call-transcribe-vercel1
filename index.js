@@ -291,12 +291,21 @@ app.post("/recording-status", async (req, res) => {
     console.log("Call Recording Completed:");
     console.log(JSON.stringify(currentRecording, null, 2));
 
-    ws.send(
-      JSON.stringify({
-        event: "recording_completed",
-        result: currentRecording,
-      })
-    );
+    wss.clients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN) {
+        try {
+          console.log("sent message to frontend==");
+          client.send(
+            JSON.stringify({
+              event: "recording_completed",
+              result: currentRecording,
+            })
+          );
+        } catch (error) {
+          console.error("Error broadcasting transcription:", error);
+        }
+      }
+    });
 
     res.status(200).send({
       status: "ok",

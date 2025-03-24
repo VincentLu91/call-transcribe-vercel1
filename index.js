@@ -277,46 +277,42 @@ app.post("/recording-status", async (req, res) => {
   const recordingStatus = req.body;
   console.log("Recording Status:", recordingStatus);
 
-  if (recordingStatus.RecordingStatus === "completed") {
-    // Store recording information when it's complete
-    currentRecording = {
-      recordingSid: recordingStatus.RecordingSid,
-      recordingUrl: recordingStatus.RecordingUrl,
-      recordingDuration: recordingStatus.RecordingDuration,
-      recordingChannels: recordingStatus.RecordingChannels,
-      recordingStatus: recordingStatus.RecordingStatus,
-    };
+  // if (recordingStatus.RecordingStatus === "completed") {
+  // Store recording information when it's complete
+  currentRecording = {
+    recordingSid: recordingStatus.RecordingSid,
+    recordingUrl: recordingStatus.RecordingUrl,
+    recordingDuration: recordingStatus.RecordingDuration,
+    recordingChannels: recordingStatus.RecordingChannels,
+    recordingStatus: recordingStatus.RecordingStatus,
+  };
 
-    // Print the recording object when call ends
-    console.log("Call Recording Completed:");
-    console.log(JSON.stringify(currentRecording, null, 2));
+  // Print the recording object when call ends
+  console.log("Call Recording Completed:");
+  console.log(JSON.stringify(currentRecording, null, 2));
 
-    wss.clients.forEach((client) => {
-      if (client.readyState === WebSocket.OPEN) {
-        try {
-          console.log("sent message to frontend==");
-          client.send(
-            JSON.stringify({
-              event: "recording_completed",
-              result: currentRecording,
-            })
-          );
-        } catch (error) {
-          console.error("Error broadcasting transcription:", error);
-        }
+  wss.clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      try {
+        console.log("sent message to frontend==");
+        client.send(
+          JSON.stringify({
+            event: "update_recording_status",
+            result: currentRecording,
+          })
+        );
+      } catch (error) {
+        console.error("Error broadcasting transcription:", error);
       }
-    });
+    }
+  });
 
-    res.status(200).send({
-      status: "ok",
-      message: "recording in completed",
-    });
-  } else {
-    res.status(200).send({
-      status: "ok",
-      message: "recording in progress",
-    });
-  }
+  const message = currentRecording.recordingStatus;
+
+  res.status(200).send({
+    status: "ok",
+    message: message,
+  });
 });
 
 // Handle outbound calls

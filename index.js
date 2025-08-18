@@ -220,7 +220,7 @@ app.post("/make-outbounding-call", async (req, res) => {
     const recordingStatusCallback =
       process.env.VERCEL_ENV === "production"
         ? "https://call-transcribe-heroku-b15b1132d70f.herokuapp.com/recording-status" // prod
-        : "https://98f4-70-50-62-156.ngrok-free.app/recording-status"; // local ngrok temporary
+        : "https://1c379d9a56cb.ngrok-free.app/recording-status"; // local ngrok temporary
 
     const call = await client.calls.create({
       to: formattedNumber,

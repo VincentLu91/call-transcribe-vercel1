@@ -34,6 +34,9 @@ let turnStore = new Map(); // order_key -> committed paragraph text
 let liveLine = ""; // current interim line
 let currentRecording = null; // Store the current recording information
 
+// Track active connections
+const activeConnections = new Set();
+
 // Handle Web Socket Connection
 wss.on("connection", function connection(ws, req) {
   const origin = String(req.headers.origin || "").toLowerCase();
@@ -41,6 +44,7 @@ wss.on("connection", function connection(ws, req) {
   // Send per-turn to the demo, cumulative to everyone else.
   ws.broadcastMode = origin.includes("localhost:8080") ? "turn" : "full";
   console.log("New Connection Initiated");
+  activeConnections.add(ws);
 
   // Send initial connection message with error handling
   try {
@@ -53,6 +57,16 @@ wss.on("connection", function connection(ws, req) {
   } catch (error) {
     console.error("Error sending connection message:", error);
   }
+
+  ws.on("close", () => {
+    console.log("Client disconnected");
+    activeConnections.delete(ws);
+  });
+
+  ws.on("error", (error) => {
+    console.error("WebSocket error:", error);
+    activeConnections.delete(ws);
+  });
 
   ws.on("message", function incoming(message) {
     const messageStr = message.toString();
@@ -92,7 +106,7 @@ wss.on("connection", function connection(ws, req) {
                   reset: true, // harmless extra flag if you ever want it
                 };
 
-                wss.clients.forEach((client) => {
+                activeConnections.forEach((client) => {
                   if (client.readyState === WebSocket.OPEN) {
                     client.send(JSON.stringify(clearPayload));
                   }
@@ -153,7 +167,7 @@ wss.on("connection", function connection(ws, req) {
                   turn_is_formatted: !!evt.turn_is_formatted,
                 };
 
-                wss.clients.forEach((client) => {
+                activeConnections.forEach((client) => {
                   if (client.readyState !== WebSocket.OPEN) return;
                   const textForClient =
                     client.broadcastMode === "full" ? full : text; // cumulative vs per-turn
@@ -279,10 +293,29 @@ app.post("/make-outbounding-call", async (req, res) => {
     return res.status(400).json({ error: "Phone number is required" });
   }
 
-  // Reset recording state for new call
+  // Reset recording state and clear transcription for new call
   currentRecording = null;
+  turnStore = new Map();
+  liveLine = "";
+  latestTranscription = "";
 
-  // Always reinitialize the WebSocket for a new call
+  // Notify all clients to clear their transcription
+  activeConnections.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(
+        JSON.stringify({
+          event: "interim-transcription",
+          text: "",
+          end_of_turn: false,
+          order_key: -1,
+          turn_is_formatted: false,
+          reset: true,
+        })
+      );
+    }
+  });
+
+  // Close and reinitialize AssemblyAI WebSocket
   if (assembly) {
     try {
       assembly.close();
@@ -290,7 +323,7 @@ app.post("/make-outbounding-call", async (req, res) => {
       console.log("Error closing existing WebSocket:", error);
     }
   }
-  initAssemblyWebSocket();
+  await initAssemblyWebSocket();
 
   try {
     const isProduction = process.env.VERCEL_ENV === "production";
@@ -375,7 +408,7 @@ app.post("/recording-status", async (req, res) => {
   console.log("Call Recording Completed:");
   console.log(JSON.stringify(currentRecording, null, 2));
 
-  wss.clients.forEach((client) => {
+  activeConnections.forEach((client) => {
     if (client.readyState === WebSocket.OPEN) {
       try {
         console.log("sent message to frontend==");
@@ -451,7 +484,7 @@ app.post("/", async (req, res) => {
   }
 });
 
-const initAssemblyWebSocket = () => {
+const initAssemblyWebSocket = async () => {
   try {
     const v3UrlA = new URL("wss://streaming.assemblyai.com/v3/ws");
     v3UrlA.searchParams.set("sample_rate", "8000");
@@ -475,15 +508,23 @@ const initAssemblyWebSocket = () => {
       console.log("AssemblyAI WebSocket closed");
     };
 
-    // Add connection state check
-    if (assembly.readyState === WebSocket.CONNECTING) {
-      return new Promise((resolve) => {
-        assembly.onopen = () => {
-          console.log("assembly websocket initiated!");
-          resolve();
-        };
-      });
-    }
+    // Always return a promise that resolves when connection is ready
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error("WebSocket connection timeout"));
+      }, 10000);
+
+      assembly.onopen = () => {
+        console.log("assembly websocket initiated!");
+        clearTimeout(timeout);
+        resolve();
+      };
+
+      assembly.onerror = (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      };
+    });
   } catch (error) {
     console.log("initAssemblyWebSocket Err:", error);
     throw error;

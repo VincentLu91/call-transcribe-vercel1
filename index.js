@@ -2,7 +2,7 @@ require("dotenv").config();
 
 const WebSocket = require("ws");
 const express = require("express");
-const WaveFile = require("wavefile").WaveFile;
+//const WaveFile = require("wavefile").WaveFile;
 const path = require("path");
 const twilio = require("twilio");
 
@@ -50,107 +50,120 @@ wss.on("connection", function connection(ws) {
   ws.on("message", function incoming(message) {
     const messageStr = message.toString();
     console.log("on message49");
-    if (!assembly) {
-      console.error("AssemblyAI's WebSocket must be initialized.");
-      return;
-    }
+
     try {
-      const msg = JSON.parse(message);
+      const msg = JSON.parse(messageStr);
+
       switch (msg.event) {
-        case "connected":
-          console.log(`A new call has connected.`);
+        case "connected": {
+          console.log("A new call has connected.");
+
+          // v3: simplify — handle Begin/Turn/Termination and forward transcript
           assembly.onerror = (error) => {
             console.error("AssemblyAI WebSocket error1:", error);
           };
 
-          const texts = {};
           assembly.onmessage = (assemblyMsg) => {
-            console.log("New message from twilio====");
             try {
-              const res = JSON.parse(assemblyMsg.data);
-              texts[res.audio_start] = res.text;
-              const keys = Object.keys(texts);
-              keys.sort((a, b) => a - b);
-              let msg = "";
-              for (const key of keys) {
-                if (texts[key]) {
-                  msg += ` ${texts[key]}`;
-                }
-              }
-              // console.log("New message70:", msg);
-              latestTranscription = msg; // Store the latest transcription
+              const evt = JSON.parse(assemblyMsg.data);
 
-              // Broadcast to all connected clients
-              wss.clients.forEach((client) => {
-                if (client.readyState === WebSocket.OPEN) {
-                  try {
-                    console.log("sent message to frontend==");
-                    client.send(
-                      JSON.stringify({
-                        event: "interim-transcription",
-                        text: msg,
-                      })
-                    );
-                  } catch (error) {
-                    console.error("Error broadcasting transcription:", error);
+              if (evt.type === "Begin") {
+                // optional: log once for debugging
+                console.log("[AAI v3] Begin");
+                return;
+              }
+
+              if (evt.type === "Turn" && evt.transcript) {
+                latestTranscription = evt.transcript;
+
+                // Derive a stable numeric order key:
+                // Prefer fields that often exist on v3 events; fall back safely.
+                const orderKey = Number.isFinite(Number(evt.turn_order))
+                  ? Number(evt.turn_order)
+                  : Number.isFinite(Number(evt.audio_start))
+                  ? Number(evt.audio_start)
+                  : Number.isFinite(Number(evt.start_ms))
+                  ? Number(evt.start_ms)
+                  : Date.now(); // last resort (monotonic enough within a session)
+
+                const payload = {
+                  event: "interim-transcription",
+                  text: evt.transcript,
+                  end_of_turn: !!evt.end_of_turn,
+                  order_key: orderKey, // NEW
+                  turn_is_formatted: !!evt.turn_is_formatted, // NEW
+                };
+
+                wss.clients.forEach((client) => {
+                  if (client.readyState === WebSocket.OPEN) {
+                    client.send(JSON.stringify(payload));
                   }
-                }
-              });
-            } catch (error) {
-              console.error("Error processing AssemblyAI message:", error);
+                });
+              }
+            } catch (e) {
+              // ignore control frames / non-JSON
             }
           };
-          break;
 
-        case "start":
+          break;
+        }
+
+        case "start": {
           console.log(`Starting Media Stream ${msg.streamSid}`);
           break;
+        }
 
-        case "media":
-          const twilioData = msg.media.payload;
-          // Build the wav file from scratch since it comes in as raw data
-          let wav = new WaveFile();
+        case "media": {
+          // ⬇️ ONLY guard 'media' frames — don't block other events
+          if (!assembly || assembly.readyState !== WebSocket.OPEN) {
+            console.error(
+              "AssemblyAI WebSocket not ready; dropping media frame"
+            );
+            break;
+          }
 
-          // Twilio uses MuLaw so we have to encode for that
-          wav.fromScratch(1, 8000, "8m", Buffer.from(twilioData, "base64"));
+          const b64 = msg.media?.payload;
+          if (!b64) break;
 
-          // This library has a handy method to decode MuLaw straight to 16-bit PCM
-          wav.fromMuLaw();
+          // Twilio sends ~20ms μ-law frames @ 8kHz; v3 accepts raw μ-law bytes
+          const frame = Buffer.from(b64, "base64");
 
-          // Get the raw audio data in base64
-          const twilio64Encoded = wav.toDataURI().split("base64,")[1];
-
-          // Create our audio buffer
-          const twilioAudioBuffer = Buffer.from(twilio64Encoded, "base64");
-
-          // Send data starting at byte 44 to remove wav headers so our model sees only audio data
-          chunks.push(twilioAudioBuffer.slice(44));
-
-          // We have to chunk data b/c twilio sends audio durations of ~20ms and AAI needs a min of 100ms
+          // keep ~100ms batching (5 × 20ms) before sending
+          chunks.push(frame);
           if (chunks.length >= 5) {
             const audioBuffer = Buffer.concat(chunks);
-            const encodedAudio = audioBuffer.toString("base64");
             try {
-              assembly.send(JSON.stringify({ audio_data: encodedAudio }));
+              assembly.send(audioBuffer); // v3: send RAW BYTES (no JSON)
             } catch (error) {
-              console.error("Error sending audio data to AssemblyAI:", error);
+              console.error(
+                "Error sending audio data to AssemblyAI v3:",
+                error
+              );
             }
             chunks = [];
           }
           break;
+        }
 
-        case "ping":
-          console.log(`Ping Received`);
+        case "ping": {
+          console.log("Ping Received");
           ws.send(JSON.stringify({ event: "pong" }));
           break;
-        case "stop":
-          console.log(`Call Has Ended`);
+        }
+
+        case "stop": {
+          console.log("Call Has Ended");
           try {
-            assembly.send(JSON.stringify({ terminate_session: true }));
+            // v3: no terminate_session payload — just close
             assembly.close();
           } catch (error) {
             console.error("Error terminating AssemblyAI session:", error);
           }
+          break;
+        }
+
+        default:
+          // ignore unknown events
           break;
       }
     } catch (error) {
@@ -220,7 +233,7 @@ app.post("/make-outbounding-call", async (req, res) => {
     const recordingStatusCallback =
       process.env.VERCEL_ENV === "production"
         ? "https://call-transcribe-heroku-b15b1132d70f.herokuapp.com/recording-status" // prod
-        : "https://1c379d9a56cb.ngrok-free.app/recording-status"; // local ngrok temporary
+        : "https://1c379d9a56cb.ngrok-free.app/recording-status"; // update ngrok here and .env
 
     const call = await client.calls.create({
       to: formattedNumber,
@@ -321,13 +334,14 @@ app.post("/recording-status", async (req, res) => {
 app.post("/", async (req, res) => {
   try {
     // Initialize AssemblyAI WebSocket with timeout and error handling
-    assembly = new WebSocket(
-      "wss://api.assemblyai.com/v2/realtime/ws?sample_rate=8000",
-      {
-        headers: { authorization: ASSEMBLY_AI_KEY },
-        handshakeTimeout: 10000, // 10 second timeout
-      }
-    );
+    const v3Url = new URL("wss://streaming.assemblyai.com/v3/ws");
+    v3Url.searchParams.set("sample_rate", "8000"); // Twilio is 8kHz
+    v3Url.searchParams.set("encoding", "pcm_mulaw"); // Twilio sends μ-law
+
+    assembly = new WebSocket(v3Url, {
+      headers: { Authorization: ASSEMBLY_AI_KEY }, // note: 'Authorization'
+      handshakeTimeout: 10000,
+    });
 
     // Handle connection errors
     assembly.onerror = (error) => {
@@ -370,13 +384,14 @@ app.post("/", async (req, res) => {
 
 const initAssemblyWebSocket = () => {
   try {
-    assembly = new WebSocket(
-      "wss://api.assemblyai.com/v2/realtime/ws?sample_rate=8000",
-      {
-        headers: { authorization: ASSEMBLY_AI_KEY },
-        handshakeTimeout: 10000, // 10 second timeout
-      }
-    );
+    const v3UrlA = new URL("wss://streaming.assemblyai.com/v3/ws");
+    v3UrlA.searchParams.set("sample_rate", "8000");
+    v3UrlA.searchParams.set("encoding", "pcm_mulaw");
+
+    assembly = new WebSocket(v3UrlA, {
+      headers: { Authorization: ASSEMBLY_AI_KEY }, // note capital-A
+      handshakeTimeout: 10000,
+    });
 
     // Handle connection errors
     assembly.onerror = (error) => {

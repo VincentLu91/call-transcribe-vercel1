@@ -19,7 +19,11 @@
       <button onclick="makeCall()" style="padding: 8px 16px">Make Call</button>
     </div>
     <p id="transcription-container"></p>
+    <!-- NEW: finalized paragraphs will accumulate here -->
+    <div id="final-transcript" style="margin-top: 10px; line-height: 1.5"></div>
+
     <p id="recording-url"></p>
+
     <script>
       function makeCall() {
         try {
@@ -58,6 +62,32 @@
         const wsUrl = `${protocol}//${host}`;
 
         let ws = new WebSocket(wsUrl);
+        let nextOrder = 0; // local fallback when server doesn't provide an order_key
+        let liveP = null;
+
+        // NEW: stable rendering helpers
+        const interimEl = document.getElementById("transcription-container");
+        const finalEl = document.getElementById("final-transcript");
+        const turnEls = new Map(); // order_key -> <p>
+
+        function getOrCreateTurnEl(orderKey) {
+          // Prefer server order_key; otherwise fall back to a local counter
+          const key = Number.isFinite(Number(orderKey))
+            ? String(orderKey)
+            : String(nextOrder++);
+
+          if (turnEls.has(key)) return turnEls.get(key);
+
+          const p = document.createElement("p");
+          p.dataset.order = key;
+          p.id = `turn-${key}`;
+
+          // APPEND-ONLY so nothing jumps around visually
+          finalEl.appendChild(p);
+
+          turnEls.set(key, p);
+          return p;
+        }
 
         function ping() {
           if (ws.readyState == WebSocket.OPEN) {
@@ -92,17 +122,51 @@
         }
 
         ws.onmessage = function (msg) {
-          console.log("on new message...", msg.data);
-          const data = JSON.parse(msg.data);
-          if (data.event === "interim-transcription") {
-            document.getElementById("transcription-container").innerHTML =
-              data.text;
-          }
-          if (data.event === "recording_completed") {
-            const result = data.result;
-            document.getElementById(
-              "recording-url"
-            ).innerHTML = `<a href="${result?.recordingUrl}">open url</a>`;
+          try {
+            const data = JSON.parse(msg.data);
+
+            if (data.event === "interim-transcription") {
+              // Always render live text at the BOTTOM inside finalEl (no top container jump)
+              if (!liveP) {
+                liveP = document.createElement("p");
+                liveP.id = "live-turn";
+                finalEl.appendChild(liveP); // append-only, no reordering
+              }
+              liveP.textContent = (data.text || "").trim();
+
+              // Determine order using server-provided order_key, else fall back locally
+              const hasOrderFromServer = Number.isFinite(
+                Number(data.order_key)
+              );
+              let order = hasOrderFromServer ? Number(data.order_key) : null;
+
+              if (data.end_of_turn) {
+                if (order == null) order = nextOrder++; // fallback order
+
+                // Commit this live paragraph to a stable order key and clear "live"
+                liveP.dataset.order = String(order);
+                turnEls.set(String(order), liveP);
+                liveP.id = ""; // it's no longer the live paragraph
+                liveP = null; // next turn will create a new liveP
+              }
+
+              // If a later, formatted version of the same turn arrives, update in place
+              if (data.turn_is_formatted) {
+                if (order == null) order = Math.max(0, nextOrder - 1); // best-effort fallback
+                const key = String(order);
+                const p = turnEls.get(key) || getOrCreateTurnEl(order);
+                p.textContent = (data.text || "").trim();
+              }
+            }
+
+            if (data.event === "recording_completed") {
+              const result = data.result;
+              document.getElementById(
+                "recording-url"
+              ).innerHTML = `<a href="${result?.recordingUrl}">open url</a>`;
+            }
+          } catch (e) {
+            console.log("ws.onmessage parse error", e);
           }
         };
       });

@@ -29,10 +29,17 @@ const wss = new WebSocket.Server({
 let assembly;
 let chunks = [];
 let latestTranscription = ""; // Store the latest transcription
+// NEW: server-side transcript aggregator to keep Next.js unchanged
+let turnStore = new Map(); // order_key -> committed paragraph text
+let liveLine = ""; // current interim line
 let currentRecording = null; // Store the current recording information
 
 // Handle Web Socket Connection
-wss.on("connection", function connection(ws) {
+wss.on("connection", function connection(ws, req) {
+  const origin = String(req.headers.origin || "").toLowerCase();
+  // Node demo usually runs on :8080, Next.js on :3000 (or anything else).
+  // Send per-turn to the demo, cumulative to everyone else.
+  ws.broadcastMode = origin.includes("localhost:8080") ? "turn" : "full";
   console.log("New Connection Initiated");
 
   // Send initial connection message with error handling
@@ -68,8 +75,11 @@ wss.on("connection", function connection(ws) {
               const evt = JSON.parse(assemblyMsg.data);
 
               if (evt.type === "Begin") {
-                // optional: log once for debugging
                 console.log("[AAI v3] Begin");
+                // NEW: clear server-side state for a fresh call/session
+                turnStore = new Map();
+                liveLine = "";
+                latestTranscription = "";
                 return;
               }
 
@@ -86,18 +96,59 @@ wss.on("connection", function connection(ws) {
                   ? Number(evt.start_ms)
                   : Date.now(); // last resort (monotonic enough within a session)
 
+                // (orderKey is already computed above)
+                const text = String(evt.transcript || "").trim();
+
+                // Update server-side aggregator
+                if (evt.end_of_turn) {
+                  // Commit finished paragraph
+                  turnStore.set(orderKey, text);
+                  liveLine = "";
+                } else if (evt.turn_is_formatted && turnStore.has(orderKey)) {
+                  // Update an already-committed paragraph with formatted text
+                  turnStore.set(orderKey, text);
+                  liveLine = "";
+                } else {
+                  // Show the live (interim) line while speaking
+                  liveLine = text;
+                }
+
+                // Build the full transcript (committed + live)
+                const ordered = Array.from(turnStore.entries())
+                  .sort(([a], [b]) => Number(a) - Number(b))
+                  .map(([, t]) => t);
+
+                const full = evt.end_of_turn
+                  ? ordered.join("\n")
+                  : [...ordered, liveLine].filter(Boolean).join("\n");
+
+                // Keep your existing “latest” for the REST endpoint too
+                latestTranscription = full;
+
+                // Send the same event your Next.js client already expects,
+                // but with the cumulative transcript in `text`
                 const payload = {
                   event: "interim-transcription",
                   text: evt.transcript,
                   end_of_turn: !!evt.end_of_turn,
-                  order_key: orderKey, // NEW
-                  turn_is_formatted: !!evt.turn_is_formatted, // NEW
+                  order_key: orderKey,
+                  turn_is_formatted: !!evt.turn_is_formatted,
                 };
 
                 wss.clients.forEach((client) => {
-                  if (client.readyState === WebSocket.OPEN) {
-                    client.send(JSON.stringify(payload));
-                  }
+                  if (client.readyState !== WebSocket.OPEN) return;
+                  const textForClient =
+                    client.broadcastMode === "full" ? full : text; // cumulative vs per-turn
+
+                  client.send(
+                    JSON.stringify({
+                      event: "interim-transcription",
+                      text: textForClient,
+                      end_of_turn: !!evt.end_of_turn,
+                      order_key: orderKey,
+                      turn_is_formatted: !!evt.turn_is_formatted,
+                    })
+                  );
                 });
               }
             } catch (e) {

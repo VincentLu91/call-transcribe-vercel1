@@ -76,10 +76,28 @@ wss.on("connection", function connection(ws, req) {
 
               if (evt.type === "Begin") {
                 console.log("[AAI v3] Begin");
-                // NEW: clear server-side state for a fresh call/session
+
+                // reset server-side accumulators
                 turnStore = new Map();
                 liveLine = "";
                 latestTranscription = "";
+
+                // NEW: push a clear message to every connected client
+                const clearPayload = {
+                  event: "interim-transcription", // same event your clients already handle
+                  text: "", // empty clears the UI
+                  end_of_turn: false,
+                  order_key: -1,
+                  turn_is_formatted: false,
+                  reset: true, // harmless extra flag if you ever want it
+                };
+
+                wss.clients.forEach((client) => {
+                  if (client.readyState === WebSocket.OPEN) {
+                    client.send(JSON.stringify(clearPayload));
+                  }
+                });
+
                 return;
               }
 

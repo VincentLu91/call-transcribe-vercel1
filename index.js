@@ -531,7 +531,7 @@ const initAssemblyWebSocket = async () => {
   }
 };
 // Start server
-initAssemblyWebSocket();
+// initAssemblyWebSocket(); // dyno starts every day running this line, risk of calling AAI API
 console.log(`Listening at Port ${PORT}`);
 server.listen(PORT);
 

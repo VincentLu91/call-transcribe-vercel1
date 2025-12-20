@@ -12,8 +12,9 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
-    "dotenv": "^16.4.7",
-    "express": "^4.21.2",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "npm-check-updates": "^19.2.0",
     "twilio": "^5.5.1",
     "wavefile": "^11.0.0",
     "ws": "^8.18.1"

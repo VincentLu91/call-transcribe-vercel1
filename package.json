@@ -14,7 +14,7 @@
   "dependencies": {
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
-    "npm-check-updates": "^19.4.0",
+    "npm-check-updates": "^19.4.1",
     "twilio": "^5.12.2",
     "wavefile": "^11.0.0",
     "ws": "^8.19.0"

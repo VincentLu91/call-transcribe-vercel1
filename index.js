@@ -52,7 +52,7 @@ wss.on("connection", function connection(ws, req) {
       JSON.stringify({
         event: "connected",
         message: "WebSocket connection established",
-      })
+      }),
     );
   } catch (error) {
     console.error("Error sending connection message:", error);
@@ -128,21 +128,27 @@ wss.on("connection", function connection(ws, req) {
                   ? Number(evt.start_ms)
                   : Date.now(); // last resort (monotonic enough within a session)
 
+                // Extract speaker label
+                const speakerLabel = evt.speaker_label; // e.g., "A", "B", "C"
+
                 // (orderKey is already computed above)
                 const text = String(evt.transcript || "").trim();
+                const textWithSpeaker = speakerLabel
+                  ? `Speaker ${speakerLabel}: ${text}`
+                  : text;
 
                 // Update server-side aggregator
                 if (evt.end_of_turn) {
-                  // Commit finished paragraph
-                  turnStore.set(orderKey, text);
+                  // Commit finished paragraph with speaker label
+                  turnStore.set(orderKey, textWithSpeaker);
                   liveLine = "";
                 } else if (evt.turn_is_formatted && turnStore.has(orderKey)) {
                   // Update an already-committed paragraph with formatted text
-                  turnStore.set(orderKey, text);
+                  turnStore.set(orderKey, textWithSpeaker);
                   liveLine = "";
                 } else {
                   // Show the live (interim) line while speaking
-                  liveLine = text;
+                  liveLine = textWithSpeaker;
                 }
 
                 // Build the full transcript (committed + live)
@@ -154,7 +160,7 @@ wss.on("connection", function connection(ws, req) {
                   ? ordered.join("\n")
                   : [...ordered, liveLine].filter(Boolean).join("\n");
 
-                // Keep your existing “latest” for the REST endpoint too
+                // Keep your existing "latest" for the REST endpoint too
                 latestTranscription = full;
 
                 // Send the same event your Next.js client already expects,
@@ -165,12 +171,13 @@ wss.on("connection", function connection(ws, req) {
                   end_of_turn: !!evt.end_of_turn,
                   order_key: orderKey,
                   turn_is_formatted: !!evt.turn_is_formatted,
+                  speaker_label: speakerLabel,
                 };
 
                 activeConnections.forEach((client) => {
                   if (client.readyState !== WebSocket.OPEN) return;
                   const textForClient =
-                    client.broadcastMode === "full" ? full : text; // cumulative vs per-turn
+                    client.broadcastMode === "full" ? full : textWithSpeaker; // cumulative vs per-turn
 
                   client.send(
                     JSON.stringify({
@@ -179,7 +186,8 @@ wss.on("connection", function connection(ws, req) {
                       end_of_turn: !!evt.end_of_turn,
                       order_key: orderKey,
                       turn_is_formatted: !!evt.turn_is_formatted,
-                    })
+                      speaker_label: speakerLabel,
+                    }),
                   );
                 });
               }
@@ -200,7 +208,7 @@ wss.on("connection", function connection(ws, req) {
           // ⬇️ ONLY guard 'media' frames — don't block other events
           if (!assembly || assembly.readyState !== WebSocket.OPEN) {
             console.error(
-              "AssemblyAI WebSocket not ready; dropping media frame"
+              "AssemblyAI WebSocket not ready; dropping media frame",
             );
             break;
           }
@@ -220,7 +228,7 @@ wss.on("connection", function connection(ws, req) {
             } catch (error) {
               console.error(
                 "Error sending audio data to AssemblyAI v3:",
-                error
+                error,
               );
             }
             chunks = [];
@@ -278,7 +286,7 @@ app.post("/make-call1", (req, res) => {
   res.send(
     `<Response>
        <Dial>${formattedNumber}</Dial>
-     </Response>`
+     </Response>`,
   );
 });
 
@@ -310,7 +318,7 @@ app.post("/make-outbounding-call", async (req, res) => {
           order_key: -1,
           turn_is_formatted: false,
           reset: true,
-        })
+        }),
       );
     }
   });
@@ -416,7 +424,7 @@ app.post("/recording-status", async (req, res) => {
           JSON.stringify({
             event: "update_recording_status",
             result: currentRecording,
-          })
+          }),
         );
       } catch (error) {
         console.error("Error broadcasting transcription:", error);
@@ -439,6 +447,7 @@ app.post("/", async (req, res) => {
     const v3Url = new URL("wss://streaming.assemblyai.com/v3/ws");
     v3Url.searchParams.set("sample_rate", "8000"); // Twilio is 8kHz
     v3Url.searchParams.set("encoding", "pcm_mulaw"); // Twilio sends μ-law
+    v3Url.searchParams.set("speaker_labels", "true"); // Enable speaker diarization
 
     assembly = new WebSocket(v3Url, {
       headers: { Authorization: ASSEMBLY_AI_KEY }, // note: 'Authorization'
@@ -476,7 +485,7 @@ app.post("/", async (req, res) => {
            Start speaking to see your audio transcribed in the console
          </Say>
          <Pause length='30' />
-       </Response>`
+       </Response>`,
     );
   } catch (error) {
     console.error("Error initializing AssemblyAI connection:", error);
@@ -489,6 +498,7 @@ const initAssemblyWebSocket = async () => {
     const v3UrlA = new URL("wss://streaming.assemblyai.com/v3/ws");
     v3UrlA.searchParams.set("sample_rate", "8000");
     v3UrlA.searchParams.set("encoding", "pcm_mulaw");
+    v3UrlA.searchParams.set("speaker_labels", "true"); // Enable speaker diarization
 
     assembly = new WebSocket(v3UrlA, {
       headers: { Authorization: ASSEMBLY_AI_KEY }, // note capital-A

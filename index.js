@@ -378,6 +378,33 @@ app.post("/make-outbounding-call", async (req, res) => {
     });
     console.log("call SID:", call.sid);
 
+    if (supabase) {
+      const { data: pendingCallRecording, error: pendingCallRecordingError } =
+        await supabase
+          .from("call_recordings")
+          .insert([
+            {
+              telnyx_call_control_id: call.sid,
+              customer_id: customerId,
+              react_native_event: "initiated",
+            },
+          ])
+          .select("id")
+          .single();
+
+      if (pendingCallRecordingError) {
+        console.log(
+          "Failed to create pending call_recordings row:",
+          pendingCallRecordingError,
+        );
+      } else {
+        console.log(
+          "Created pending call_recordings row:",
+          pendingCallRecording,
+        );
+      }
+    }
+
     currentRecording = {
       callSid: call.sid,
       customerId,

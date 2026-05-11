@@ -1,4 +1,5 @@
 require("dotenv").config();
+const { createClient } = require("@supabase/supabase-js");
 
 const WebSocket = require("ws");
 const express = require("express");
@@ -9,6 +10,14 @@ const twilio = require("twilio");
 const ASSEMBLY_AI_KEY = process.env.ASSEMBLY_AI_KEY;
 console.log("ASSEMBLY_AI_KEY", ASSEMBLY_AI_KEY);
 const PORT = process.env.PORT || 8080;
+
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+const supabase =
+  supabaseUrl && supabaseServiceRoleKey
+    ? createClient(supabaseUrl, supabaseServiceRoleKey)
+    : null;
 
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
 const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
@@ -395,6 +404,36 @@ app.post("/outboundWebhook", async (req, res) => {
   });
 });
 
+async function updateCallRecordingStatusInSupabase(currentRecording) {
+  if (!supabase) {
+    console.warn("Supabase is not configured; skipping call status update.");
+    return;
+  }
+
+  if (!currentRecording?.callSid) {
+    console.warn("Missing callSid; skipping call status update.");
+    return;
+  }
+
+  const { error } = await supabase
+    .from("call_recordings")
+    .update({
+      react_native_event: currentRecording.recordingStatus,
+      recording_id: currentRecording.recordingSid,
+    })
+    .eq("telnyx_call_control_id", currentRecording.callSid);
+
+  if (error) {
+    console.error("Failed to update call recording status in Supabase:", error);
+    return;
+  }
+
+  console.log("Updated call recording status in Supabase:", {
+    callSid: currentRecording.callSid,
+    status: currentRecording.recordingStatus,
+  });
+}
+
 // Handle recording status callbacks from Twilio
 app.post("/recording-status", async (req, res) => {
   const recordingStatus = req.body;
@@ -415,6 +454,10 @@ app.post("/recording-status", async (req, res) => {
   // Print the recording object when call ends
   console.log("Call Recording Completed:");
   console.log(JSON.stringify(currentRecording, null, 2));
+
+  updateCallRecordingStatusInSupabase(currentRecording).catch((error) => {
+    console.error("Unexpected Supabase status update error:", error);
+  });
 
   activeConnections.forEach((client) => {
     if (client.readyState === WebSocket.OPEN) {

@@ -355,10 +355,7 @@ app.post("/make-outbounding-call", async (req, res) => {
       : `+${phoneNumber}`;
     const wsUrl = `wss://${process.env.VERCEL_URL}`;
 
-    const recordingStatusCallback =
-      process.env.VERCEL_ENV === "production"
-        ? "https://call-transcribe-heroku-b15b1132d70f.herokuapp.com/recording-status" // prod
-        : "https://1c379d9a56cb.ngrok-free.app/recording-status"; // update ngrok here and .env
+    const recordingStatusCallback = `https://${process.env.VERCEL_URL}/recording-status`;
 
     const call = await client.calls.create({
       to: formattedNumber,

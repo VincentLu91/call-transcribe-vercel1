@@ -459,12 +459,18 @@ app.post("/recording-status", async (req, res) => {
   const recordingStatus = req.body;
   console.log("Recording Status:", recordingStatus);
 
+  const recordingUrl =
+    recordingStatus.RecordingUrl ||
+    (recordingStatus.RecordingSid
+      ? `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Recordings/${recordingStatus.RecordingSid}.mp3`
+      : null);
+
   // if (recordingStatus.RecordingStatus === "completed") {
   // Store recording information when it's complete
   currentRecording = {
     ...currentRecording,
     recordingSid: recordingStatus.RecordingSid,
-    recordingUrl: recordingStatus.RecordingUrl,
+    recordingUrl,
     recordingDuration: recordingStatus.RecordingDuration,
     recordingChannels: recordingStatus.RecordingChannels,
     recordingStatus: recordingStatus.RecordingStatus,

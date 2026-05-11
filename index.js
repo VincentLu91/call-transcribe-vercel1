@@ -306,6 +306,12 @@ app.get("/api/transcription", (req, res) => {
 
 app.post("/make-outbounding-call", async (req, res) => {
   const phoneNumber = req.body.phoneNumber;
+  const customerId = req.body.customerId;
+
+  if (!customerId) {
+    return res.status(400).json({ error: "customerId is required" });
+  }
+
   if (!phoneNumber) {
     return res.status(400).json({ error: "Phone number is required" });
   }
@@ -372,6 +378,11 @@ app.post("/make-outbounding-call", async (req, res) => {
     });
     console.log("call SID:", call.sid);
 
+    currentRecording = {
+      callSid: call.sid,
+      customerId,
+    };
+
     // Wait for recording to complete (up to 5 minutes)
     let attempts = 0;
     const maxAttempts = 60; // 5 minutes with 5-second intervals
@@ -415,11 +426,20 @@ async function updateCallRecordingStatusInSupabase(currentRecording) {
     return;
   }
 
+  console.log("Updating Supabase call recording:", {
+    callSid: currentRecording.callSid,
+    recordingSid: currentRecording.recordingSid,
+    recordingUrl: currentRecording.recordingUrl,
+    customerId: currentRecording.customerId,
+  });
+
   const { error } = await supabase
     .from("call_recordings")
     .update({
       react_native_event: currentRecording.recordingStatus,
       recording_id: currentRecording.recordingSid,
+      recording_url: currentRecording.recordingUrl,
+      customer_id: currentRecording.customerId,
     })
     .eq("telnyx_call_control_id", currentRecording.callSid);
 
@@ -442,6 +462,7 @@ app.post("/recording-status", async (req, res) => {
   // if (recordingStatus.RecordingStatus === "completed") {
   // Store recording information when it's complete
   currentRecording = {
+    ...currentRecording,
     recordingSid: recordingStatus.RecordingSid,
     recordingUrl: recordingStatus.RecordingUrl,
     recordingDuration: recordingStatus.RecordingDuration,

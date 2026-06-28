@@ -15,7 +15,7 @@
     "@supabase/supabase-js": "^2.108.2",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
-    "npm-check-updates": "^22.2.7",
+    "npm-check-updates": "^22.2.9",
     "twilio": "^6.0.2",
     "wavefile": "^11.0.0",
     "ws": "^8.21.0"

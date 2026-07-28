@@ -12,10 +12,10 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
-    "@supabase/supabase-js": "^2.110.8",
+    "@supabase/supabase-js": "^2.110.9",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
-    "npm-check-updates": "^22.2.9",
+    "npm-check-updates": "^23.0.0",
     "twilio": "^6.0.2",
     "wavefile": "^11.0.0",
     "ws": "^8.21.1"
